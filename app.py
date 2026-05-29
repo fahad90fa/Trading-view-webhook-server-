@@ -22,7 +22,7 @@ app = Flask(__name__)
 
 # Configuration
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
-SIGNALS_FILE = 'signals.jsonl'
+SIGNALS_FILE = 'signals.json'
 
 
 def validate_signal(data):
@@ -92,9 +92,9 @@ def webhook():
             'status': 'received'
         }
         
-        # Log to signals.jsonl
-        with open(SIGNALS_FILE, 'a') as f:
-            f.write(json.dumps(signal) + '\n')
+        # Keep only the latest signal by overwriting the file
+        with open(SIGNALS_FILE, 'w') as f:
+            f.write(json.dumps(signal))
         
         # Log to console
         print(f"✓ Signal received: {signal['symbol']} - {signal['order_action']} @ {signal['entry_position']}")
@@ -121,32 +121,30 @@ def webhook():
 @app.route('/signals', methods=['GET'])
 def get_signals():
     """
-    Get all received signals from TradingView
+    Get the latest received signal from TradingView
     Returns only the original TradingView data fields
     GET /signals
     """
     try:
-        signals = []
-        if os.path.exists(SIGNALS_FILE):
-            with open(SIGNALS_FILE, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        try:
-                            signal = json.loads(line)
-                            # Only include signals from TradingView
-                            if signal.get('source') == 'tradingview':
-                                # Return only the original TradingView fields
-                                clean_signal = {
-                                    'symbol': signal.get('symbol'),
-                                    'order_action': signal.get('order_action'),
-                                    'entry_position': signal.get('entry_position'),
-                                    'lot_size': signal.get('lot_size')
-                                }
-                                signals.append(clean_signal)
-                        except json.JSONDecodeError:
-                            continue
-        
-        return jsonify(signals), 200
+        if not os.path.exists(SIGNALS_FILE):
+            return jsonify({}), 200
+
+        with open(SIGNALS_FILE, 'r') as f:
+            signal = json.load(f)
+
+        if signal.get('source') != 'tradingview':
+            return jsonify({}), 200
+
+        clean_signal = {
+            'symbol': signal.get('symbol'),
+            'order_action': signal.get('order_action'),
+            'entry_position': signal.get('entry_position'),
+            'lot_size': signal.get('lot_size')
+        }
+
+        return jsonify(clean_signal), 200
+    except json.JSONDecodeError:
+        return jsonify({}), 200
     except Exception as e:
         return jsonify({
             'status': 'error',
